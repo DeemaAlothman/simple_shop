@@ -17,6 +17,8 @@ app.get("/health", (_req: Request, res: Response) =>
 
 // راوتر الأوث
 app.use("/auth", authRoutes);
+const ownerRoutes = require("./routes/owner");
+app.use("/owner", ownerRoutes);
 
 // 404
 app.use((req: Request, res: Response) => {
