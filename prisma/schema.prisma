@@ -1,0 +1,200 @@
+// ---------- Generator & Datasource ----------
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+enum Role {
+  OWNER
+  CUSTOMER
+}
+
+enum OfferType {
+  PERCENT
+  AMOUNT
+}
+
+enum OrderStatus {
+  PLACED
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  COD
+}
+
+// ---------- Models ----------
+model User {
+  id           BigInt   @id @default(autoincrement())
+  name         String
+  phone        String   @unique
+  email        String?  @unique
+  passwordHash String
+  role         Role     @default(CUSTOMER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  // no addresses
+  orders       Order[]  @relation("UserOrders")
+
+  @@index([phone])
+}
+
+model Category {
+  id         BigInt     @id @default(autoincrement())
+  name       String
+  isActive   Boolean    @default(true)
+  parentId   BigInt?
+
+  parent     Category?  @relation("CategoryToParent", fields: [parentId], references: [id])
+  children   Category[] @relation("CategoryToParent")
+
+  products   Product[]
+  attributes Attribute[]
+
+  // opposite side of OfferTargetCategory.category
+  offerCategoryTargets OfferTargetCategory[]
+
+  @@unique([name, parentId])
+}
+
+model Brand {
+  id       BigInt  @id @default(autoincrement())
+  name     String  @unique
+  isActive Boolean @default(true)
+
+  products Product[]
+}
+model Product {
+  id           BigInt    @id @default(autoincrement())
+  name         String
+  sku          String    @unique
+  priceCents   Int       @default(0)
+  stockQty     Int       @default(0)
+  isActive     Boolean   @default(true)
+  categoryId   BigInt
+  brandId      BigInt?
+
+  category     Category  @relation(fields: [categoryId], references: [id])
+  brand        Brand?    @relation(fields: [brandId], references: [id])
+
+  // NEW 👇
+  features     Json?     // مواصفات حرّة لكل منتج (RAM, Storage, Color, CPU...)
+
+  specs        ProductSpec[]
+  orderItems   OrderItem[]
+  offerProductTargets OfferTargetProduct[]
+
+  @@index([categoryId])
+  @@index([brandId])
+}
+
+
+model Attribute {
+  id           BigInt     @id @default(autoincrement())
+  name         String
+  unit         String?
+  categoryId   BigInt?
+
+  category     Category?  @relation(fields: [categoryId], references: [id])
+  productSpecs ProductSpec[]
+
+  @@unique([name, categoryId])
+  @@index([categoryId])
+}
+
+model ProductSpec {
+  id          BigInt     @id @default(autoincrement())
+  productId   BigInt
+  attributeId BigInt
+  value       String
+
+  product     Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attribute   Attribute  @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, attributeId])
+  @@index([productId])
+  @@index([attributeId])
+}
+
+model Offer {
+  id               BigInt               @id @default(autoincrement())
+  name             String
+  type             OfferType
+  value            Decimal              @db.Decimal(10, 2)
+  startsAt         DateTime
+  endsAt           DateTime
+  isActive         Boolean              @default(true)
+
+  productTargets   OfferTargetProduct[]
+  categoryTargets  OfferTargetCategory[]
+}
+
+model OfferTargetProduct {
+  id        BigInt  @id @default(autoincrement())
+  offerId   BigInt
+  productId BigInt
+
+  offer     Offer   @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([offerId, productId])
+  @@index([offerId])
+  @@index([productId])
+}
+
+model OfferTargetCategory {
+  id         BigInt   @id @default(autoincrement())
+  offerId    BigInt
+  categoryId BigInt
+
+  offer      Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([offerId, categoryId])
+  @@index([offerId])
+  @@index([categoryId])
+}
+
+model Order {
+  id               BigInt        @id @default(autoincrement())
+  customerId       BigInt
+  // no addressSnapshot
+  subtotalCents    Int
+  discountCents    Int           @default(0)
+  totalCents       Int
+  paymentMethod    PaymentMethod @default(COD)
+  status           OrderStatus   @default(PLACED)
+  createdAt        DateTime      @default(now())
+
+  customer         User          @relation("UserOrders", fields: [customerId], references: [id])
+  items            OrderItem[]
+
+  @@index([customerId])
+  @@index([status, createdAt])
+}
+
+model OrderItem {
+  id              BigInt  @id @default(autoincrement())
+  orderId         BigInt
+  productId       BigInt
+  nameSnapshot    String
+  skuSnapshot     String
+  unitPriceCents  Int
+  qty             Int
+  lineTotalCents  Int
+
+  order           Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product         Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+}
