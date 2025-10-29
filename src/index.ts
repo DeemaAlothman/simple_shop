@@ -5,7 +5,9 @@ const express = require("express");
 const cors = require("cors");
 
 const authRoutes = require("./routes/auth");
-
+const catalogRoutes = require("./routes/catalog");
+const customerOrderRoutes = require("./routes/orders");
+const ownerOrderRoutes = require("./routes/owner/orders");
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -19,7 +21,9 @@ app.get("/health", (_req: Request, res: Response) =>
 app.use("/auth", authRoutes);
 const ownerRoutes = require("./routes/owner");
 app.use("/owner", ownerRoutes);
-
+app.use("/catalog", catalogRoutes); // عام: تصنيفات/براندات/منتجات/مقارنة
+app.use("/orders", customerOrderRoutes); // زبون: إنشاء/عرض طلباته
+app.use("/owner/orders", ownerOrderRoutes);
 // 404
 app.use((req: Request, res: Response) => {
   res.status(404).json({ message: "Not found", path: req.originalUrl });
