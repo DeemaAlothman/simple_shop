@@ -1,33 +1,60 @@
 // src/index.ts
-import type { Request, Response } from "express";
+import type { Request, Response, NextFunction } from "express";
 require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 
+// --- Routers ---
 const authRoutes = require("./routes/auth");
 const catalogRoutes = require("./routes/catalog");
-const customerOrderRoutes = require("./routes/orders");
-const ownerOrderRoutes = require("./routes/owner/orders");
-const app = express();
-app.use(cors());
-app.use(express.json());
+const catalogOffersRoutes = require("./routes/catalog/offers");
 
-// صحّة السيرفر
+const customerOrderRoutes = require("./routes/orders");
+
+const ownerRoutes = require("./routes/owner");
+const ownerOrderRoutes = require("./routes/owner/orders");
+const ownerOffersRoutes = require("./routes/owner/offers");
+
+const app = express();
+
+// --- Middleware ---
+app.use(cors());
+app.use(express.json({ limit: "1mb" }));
+
+// --- Health ---
 app.get("/health", (_req: Request, res: Response) =>
   res.json({ ok: true, ts: new Date().toISOString() })
 );
 
-// راوتر الأوث
+// --- Public/Auth ---
 app.use("/auth", authRoutes);
-const ownerRoutes = require("./routes/owner");
-app.use("/owner", ownerRoutes);
-app.use("/catalog", catalogRoutes); // عام: تصنيفات/براندات/منتجات/مقارنة
-app.use("/orders", customerOrderRoutes); // زبون: إنشاء/عرض طلباته
+
+// --- Catalog (public) ---
+app.use("/catalog", catalogRoutes);
+app.use("/catalog", catalogOffersRoutes); // /catalog/offers, /catalog/price ...
+
+// --- Customer orders (requires auth inside the router) ---
+app.use("/orders", customerOrderRoutes);
+
+// --- Owner (requires OWNER auth inside sub-routers) ---
+app.use("/owner", ownerRoutes); // brands, categories, products ...
 app.use("/owner/orders", ownerOrderRoutes);
-// 404
+app.use("/owner", ownerOffersRoutes); // /owner/offers
+
+// --- 404 ---
 app.use((req: Request, res: Response) => {
   res.status(404).json({ message: "Not found", path: req.originalUrl });
 });
 
+// --- Global error guard (optional but useful) ---
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ message: "Server error" });
+});
+
+// --- Start server ---
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server on http://localhost:${PORT}`);
+});

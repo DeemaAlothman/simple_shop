@@ -4,8 +4,8 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 const ROLES = ["OWNER", "CUSTOMER"];
-const ACCESS_EXP = process.env.ACCESS_TOKEN_EXPIRY || "15m";
-const REFRESH_EXP = process.env.REFRESH_TOKEN_EXPIRY || "30d";
+const ACCESS_EXP = process.env.ACCESS_TOKEN_EXPIRY || "2d";
+const REFRESH_EXP = process.env.REFRESH_TOKEN_EXPIRY || "60d";
 
 function safeUser(u) {
   return {
