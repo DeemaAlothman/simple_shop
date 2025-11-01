@@ -49,18 +49,50 @@ async function listPublic(req, res) {
         skip: (page - 1) * limit,
         take: limit,
         include: {
-          productTargets: { select: { productId: true } },
-          categoryTargets: { select: { categoryId: true } },
-        },
+          // رجّع تفاصيل المنتجات المستهدفة
+          productTargets: {
+            select: {
+              productId: true, // اختياري: خليها لو حابب تحتفظ بالـ id
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true,
+                  priceCents: true,
+                  stockQty: true,
+                  isActive: true,
+                  features: true, // JSON
+                  brand: {
+                    select: { id: true, name: true }
+                  },
+                  category: {
+                    select: { id: true, name: true, parentId: true }
+                  }
+                }
+              }
+            }
+          },
+          // (اختياري) رجّع تفاصيل التصنيفات المستهدفة
+          categoryTargets: {
+            select: {
+              categoryId: true, // اختياري
+              category: {
+                select: { id: true, name: true, parentId: true, isActive: true }
+              }
+            }
+          }
+        }
       }),
-      prisma.offer.count({ where }),
+      prisma.offer.count({ where })
     ]);
+
     return res.json({ items: toJSON(items), total, page, limit });
   } catch (err) {
     console.error("catalog.offers.listPublic error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 }
+
 
 // GET /catalog/price?id=PRODUCT_ID
 async function getPriceWithOffers(req, res) {
