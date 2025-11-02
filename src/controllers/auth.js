@@ -21,83 +21,100 @@ function safeUser(u) {
 
 async function signup(req, res) {
   try {
-    const { name, phone, password, role } = req.body;
+    const { name, phone, password, role, email } = req.body;
+
     if (!name || !phone || !password) {
-      return res
-        .status(400)
-        .json({
-          message: "name, phone, password are required",
-          timestamp: new Date().toISOString(),
-        });
+      return res.status(400).json({
+        message: "name, phone, password are required",
+        timestamp: new Date().toISOString(),
+      });
     }
+
+    // تحقق من صحة رقم الهاتف
+    if (!/^\+?\d{7,15}$/.test(phone)) {
+      return res.status(400).json({
+        message: "Invalid phone format",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // تحقق من صحة البريد إذا تم إدخاله
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        message: "Invalid email format",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // حدد الدور
     let finalRole = "CUSTOMER";
     if (role === "OWNER" && process.env.ALLOW_OWNER_SIGNUP === "true")
       finalRole = "OWNER";
     if (!ROLES.includes(finalRole)) {
-      return res
-        .status(400)
-        .json({ message: "Invalid role", timestamp: new Date().toISOString() });
+      return res.status(400).json({
+        message: "Invalid role",
+        timestamp: new Date().toISOString(),
+      });
     }
-    if (!/^\+?\d{7,15}$/.test(phone)) {
-      return res
-        .status(400)
-        .json({
-          message: "Invalid phone format",
-          timestamp: new Date().toISOString(),
-        });
-    }
+
+    // تأكد أن الرقم غير مستخدم
     const existing = await prisma.user.findUnique({ where: { phone } });
     if (existing) {
-      return res
-        .status(400)
-        .json({
-          message: "User with this phone already exists",
+      return res.status(400).json({
+        message: "User with this phone already exists",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // تأكد أن الإيميل غير مستخدم (اختياري)
+    if (email) {
+      const existingEmail = await prisma.user.findUnique({ where: { email } });
+      if (existingEmail) {
+        return res.status(400).json({
+          message: "User with this email already exists",
           timestamp: new Date().toISOString(),
         });
+      }
     }
+
+    // تشفير كلمة المرور
     const passwordHash = await bcrypt.hash(password, 12);
+
+    // إنشاء المستخدم
     const user = await prisma.user.create({
-      data: { name, phone, passwordHash, role: finalRole },
+      data: { name, phone, email, passwordHash, role: finalRole },
     });
-    return res
-      .status(201)
-      .json({
-        message: "User created successfully",
-        user: safeUser(user),
-        timestamp: new Date().toISOString(),
-      });
+
+    return res.status(201).json({
+      message: "User created successfully",
+      user: safeUser(user),
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
     console.error("Signup error:", error);
-    return res
-      .status(500)
-      .json({
-        message: "Error creating user",
-        error: error.message,
-        timestamp: new Date().toISOString(),
-      });
+    return res.status(500).json({
+      message: "Error creating user",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
   }
 }
-
 async function login(req, res) {
   try {
     const { phone, password } = req.body;
     if (!phone || !password) {
-      return res
-        .status(400)
-        .json({
-          message: "phone and password are required",
-          timestamp: new Date().toISOString(),
-        });
+      return res.status(400).json({
+        message: "phone and password are required",
+        timestamp: new Date().toISOString(),
+      });
     }
     const user = await prisma.user.findUnique({ where: { phone } });
     const ok = user && (await bcrypt.compare(password, user.passwordHash));
     if (!ok) {
-      return res
-        .status(401)
-        .json({
-          message: "Invalid phone or password",
-          timestamp: new Date().toISOString(),
-        });
+      return res.status(401).json({
+        message: "Invalid phone or password",
+        timestamp: new Date().toISOString(),
+      });
     }
     const payload = { id: user.id.toString(), role: user.role };
     const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, {
@@ -118,13 +135,11 @@ async function login(req, res) {
     });
   } catch (error) {
     console.error("Login error:", error);
-    return res
-      .status(500)
-      .json({
-        message: "Error logging in",
-        error: error.message,
-        timestamp: new Date().toISOString(),
-      });
+    return res.status(500).json({
+      message: "Error logging in",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
   }
 }
 
@@ -132,20 +147,16 @@ async function refresh(req, res) {
   try {
     const uid = getUid(req);
     if (!uid)
-      return res
-        .status(401)
-        .json({
-          message: "Invalid token payload",
-          timestamp: new Date().toISOString(),
-        });
+      return res.status(401).json({
+        message: "Invalid token payload",
+        timestamp: new Date().toISOString(),
+      });
     const user = await prisma.user.findUnique({ where: { id: uid } });
     if (!user || !user.isActive) {
-      return res
-        .status(401)
-        .json({
-          message: "User not found or inactive",
-          timestamp: new Date().toISOString(),
-        });
+      return res.status(401).json({
+        message: "User not found or inactive",
+        timestamp: new Date().toISOString(),
+      });
     }
     const newAccessToken = jwt.sign(
       { id: user.id.toString(), role: user.role },
@@ -159,13 +170,11 @@ async function refresh(req, res) {
     });
   } catch (error) {
     console.error("Refresh error:", error);
-    return res
-      .status(500)
-      .json({
-        message: "Error refreshing token",
-        error: error.message,
-        timestamp: new Date().toISOString(),
-      });
+    return res.status(500).json({
+      message: "Error refreshing token",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
   }
 }
 
@@ -177,13 +186,11 @@ async function logout(_req, res) {
     });
   } catch (error) {
     console.error("Logout error:", error);
-    return res
-      .status(500)
-      .json({
-        message: "Error logging out",
-        error: error.message,
-        timestamp: new Date().toISOString(),
-      });
+    return res.status(500).json({
+      message: "Error logging out",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
   }
 }
 
