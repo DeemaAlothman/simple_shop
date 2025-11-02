@@ -1,11 +1,44 @@
 const router = require("express").Router();
+const path = require("path");
+const fs = require("fs");
+const multer = require("multer");
 const ctrl = require("../../controllers/owner/products");
 
-// إنشاء منتج جديد
-router.post("/", ctrl.create);
+// تأكد من وجود مجلد الرفع
+const uploadDir = path.join(process.cwd(), "uploads");
+fs.mkdirSync(uploadDir, { recursive: true });
 
-// تعديل منتج موجود
-router.patch("/:id", ctrl.update);
+// إعداد التخزين للأسماء والمسار
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || "");
+    const name = `${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}${ext}`;
+    cb(null, name);
+  },
+});
+
+// فلترة أنواع الملفات (صور فقط)
+function fileFilter(_req, file, cb) {
+  const ok = ["image/jpeg", "image/png", "image/webp", "image/jpg"].includes(
+    file.mimetype
+  );
+  cb(ok ? null : new Error("Only image files are allowed"), ok);
+}
+
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+});
+
+// إنشاء منتج جديد (يدعم رفع صورة بمفتاح image)
+router.post("/", upload.single("image"), ctrl.create);
+
+// تعديل منتج موجود (يدعم رفع صورة بمفتاح image)
+router.patch("/:id", upload.single("image"), ctrl.update);
 
 // حذف منتج
 router.delete("/:id", ctrl.remove);

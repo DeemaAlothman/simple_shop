@@ -1,4 +1,3 @@
-// controllers/owner/products.js
 const { PrismaClient, Prisma } = require("@prisma/client");
 const prisma = new PrismaClient();
 
@@ -8,16 +7,20 @@ function toJSON(data) {
   );
 }
 
+// توليد baseUrl من .env أو من الطلب
+function baseUrlFrom(req) {
+  const fromEnv = process.env.BASE_URL;
+  if (fromEnv) return fromEnv.replace(/\/+$/, "");
+  return `${req.protocol}://${req.get("host")}`;
+}
+
 /**
  * POST /owner/products
- * body:
- *  required: name, sku, (categoryId OR categoryName)
- *  optional:
- *    priceCents, stockQty, isActive,
- *    brandId OR brandName,
- *    features (Json),
- *    description (string),
- *    imageUrl (string)
+ * يدعم:
+ *  - multipart/form-data مع مفتاح ملف: image
+ *  - JSON عادي وفيه imageUrl
+ * حقول مطلوبة: name, sku, (categoryId OR categoryName)
+ * اختيارية: priceCents, stockQty, isActive, brandId/brandName, features, description, imageUrl
  */
 async function create(req, res) {
   try {
@@ -36,7 +39,6 @@ async function create(req, res) {
 
       features = null,
 
-      // NEW
       description = null,
       imageUrl = null,
     } = req.body || {};
@@ -103,6 +105,15 @@ async function create(req, res) {
       brandRel = { connect: { id: brId } };
     }
 
+    // ===== Image URL (ملف مرفوع أو رابط جاهز) =====
+    let finalImageUrl = null;
+    if (req.file) {
+      const base = baseUrlFrom(req);
+      finalImageUrl = `${base}/uploads/${req.file.filename}`;
+    } else if (typeof imageUrl === "string" && imageUrl.trim()) {
+      finalImageUrl = imageUrl.trim();
+    }
+
     const data = {
       name,
       sku,
@@ -115,9 +126,8 @@ async function create(req, res) {
 
       ...(features && typeof features === "object" ? { features } : {}),
 
-      // NEW
       ...(typeof description === "string" ? { description } : {}),
-      ...(typeof imageUrl === "string" ? { imageUrl } : {}),
+      ...(finalImageUrl ? { imageUrl: finalImageUrl } : {}),
     };
 
     const product = await prisma.product.create({ data });
@@ -142,13 +152,8 @@ async function create(req, res) {
 
 /**
  * PATCH /owner/products/:id
- * يقبل:
- *  name, sku, priceCents, stockQty, isActive
- *  categoryId OR categoryName
- *  brandId OR brandName (أو brandId = null لفصل البراند)
- *  features (Json)
- *  description (string|null)
- *  imageUrl (string|null)
+ * يدعم استبدال الصورة عبر multipart بنفس المفتاح image
+ * أو تمرير imageUrl كسلسلة
  */
 async function update(req, res) {
   try {
@@ -168,12 +173,12 @@ async function update(req, res) {
 
       features,
 
-      // NEW
       description,
       imageUrl,
     } = req.body || {};
 
     const data = {};
+
     if (typeof name === "string") data.name = name;
     if (typeof sku === "string") data.sku = sku;
     if (priceCents !== undefined) data.priceCents = Number(priceCents) || 0;
@@ -219,16 +224,22 @@ async function update(req, res) {
       else if (features === null) data.features = null;
     }
 
-    // NEW: description
+    // description
     if (description !== undefined) {
       if (typeof description === "string") data.description = description;
       else if (description === null) data.description = null;
     }
 
-    // NEW: imageUrl
-    if (imageUrl !== undefined) {
-      if (typeof imageUrl === "string") data.imageUrl = imageUrl;
-      else if (imageUrl === null) data.imageUrl = null;
+    // image: أولوية لملف مرفوع، وإلا imageUrl
+    if (req.file) {
+      const base = baseUrlFrom(req);
+      data.imageUrl = `${base}/uploads/${req.file.filename}`;
+    } else if (imageUrl !== undefined) {
+      if (typeof imageUrl === "string" && imageUrl.trim()) {
+        data.imageUrl = imageUrl.trim();
+      } else if (imageUrl === null) {
+        data.imageUrl = null;
+      }
     }
 
     const product = await prisma.product.update({ where: { id }, data });
@@ -264,7 +275,6 @@ async function remove(req, res) {
 }
 
 // PATCH /owner/products/:id/toggle
-// body: { isActive: boolean }
 async function toggleActive(req, res) {
   try {
     const id = BigInt(req.params.id);
@@ -286,7 +296,6 @@ async function toggleActive(req, res) {
 }
 
 // PATCH /owner/products/:id/stock
-// body: { op: "inc"|"dec"|"set", qty: number }
 async function patchStock(req, res) {
   try {
     const id = BigInt(req.params.id);
@@ -329,7 +338,7 @@ async function patchStock(req, res) {
   }
 }
 
-// GET /owner/products?search=&categoryId=&brandId=&active=&page=&limit=&sort=
+// GET /owner/products
 async function list(req, res) {
   try {
     const page = Math.max(parseInt(req.query.page || "1", 10), 1);
@@ -343,7 +352,7 @@ async function list(req, res) {
       : null;
     const brandId = req.query.brandId ? BigInt(req.query.brandId) : null;
     const active = req.query.active; // "true" | "false" | undefined
-    const sort = (req.query.sort || "-id").trim(); // fallback: -id
+    const sort = (req.query.sort || "-id").trim();
 
     const where = {};
     if (search) where.name = { contains: search, mode: "insensitive" };
