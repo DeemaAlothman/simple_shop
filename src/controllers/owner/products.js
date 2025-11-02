@@ -11,7 +11,12 @@ function toJSON(data) {
  * POST /owner/products
  * body:
  *  required: name, sku, (categoryId OR categoryName)
- *  optional: priceCents, stockQty, isActive, brandId OR brandName, features (Json)
+ *  optional:
+ *    priceCents, stockQty, isActive,
+ *    brandId OR brandName,
+ *    features (Json),
+ *    description (string),
+ *    imageUrl (string)
  */
 async function create(req, res) {
   try {
@@ -29,8 +34,13 @@ async function create(req, res) {
       brandName = null,
 
       features = null,
+
+      // NEW
+      description = null,
+      imageUrl = null,
     } = req.body || {};
 
+    // basic required checks
     if (!name || !sku) {
       return res.status(400).json({ message: "name, sku are required" });
     }
@@ -43,15 +53,16 @@ async function create(req, res) {
     // ===== Category relation =====
     let categoryRel;
     if (categoryName) {
-      // لأن @@unique([name,parentId]) لا تقبل null في connectOrCreate
-      // نحلّها يدويًا: findFirst ثم create إن لم توجد
+      // ندوّر على تصنيف بنفس الاسم و parentId = null
       const existingCat = await prisma.category.findFirst({
         where: { name: categoryName, parentId: null },
         select: { id: true },
       });
+
       if (existingCat) {
         categoryRel = { connect: { id: existingCat.id } };
       } else {
+        // إذا مو موجود، منخلقه
         const createdCat = await prisma.category.create({
           data: { name: categoryName, isActive: true, parentId: null },
           select: { id: true },
@@ -75,7 +86,7 @@ async function create(req, res) {
     // ===== Brand relation =====
     let brandRel;
     if (brandName) {
-      // brand.name عندك @unique، فيك تستخدم connectOrCreate بأمان
+      // brand.name عندك @unique => connectOrCreate آمن
       brandRel = {
         connectOrCreate: {
           where: { name: brandName },
@@ -96,15 +107,22 @@ async function create(req, res) {
       brandRel = { connect: { id: brId } };
     }
 
+    // نبني الـ data تبع الـ product
     const data = {
       name,
       sku,
       priceCents: Number(priceCents) || 0,
       stockQty: Number(stockQty) || 0,
       isActive: Boolean(isActive),
+
       category: categoryRel,
       ...(brandRel ? { brand: brandRel } : {}),
+
       ...(features && typeof features === "object" ? { features } : {}),
+
+      // NEW FIELDS
+      ...(typeof description === "string" ? { description } : {}),
+      ...(typeof imageUrl === "string" ? { imageUrl } : {}),
     };
 
     const product = await prisma.product.create({ data });
@@ -112,6 +130,7 @@ async function create(req, res) {
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       if (err.code === "P2002") {
+        // unique violation => غالباً sku
         return res
           .status(409)
           .json({ message: "SKU already exists", field: "sku" });
@@ -129,15 +148,18 @@ async function create(req, res) {
 
 /**
  * PATCH /owner/products/:id
- * يقبل:
+ * يقبل أي من:
  *  name, sku, priceCents, stockQty, isActive
  *  categoryId OR categoryName
- *  brandId OR brandName (أو null لفصل البراند)
+ *  brandId OR brandName (أو brandId = null لفصل البراند)
  *  features (Json)
+ *  description (string|null)
+ *  imageUrl (string|null)
  */
 async function update(req, res) {
   try {
     const id = BigInt(req.params.id);
+
     const {
       name,
       sku,
@@ -150,17 +172,24 @@ async function update(req, res) {
 
       brandId,
       brandName,
+
       features,
+
+      // NEW
+      description,
+      imageUrl,
     } = req.body || {};
 
     const data = {};
+
+    // حقول بسيطة
     if (typeof name === "string") data.name = name;
     if (typeof sku === "string") data.sku = sku;
     if (priceCents !== undefined) data.priceCents = Number(priceCents) || 0;
     if (stockQty !== undefined) data.stockQty = Number(stockQty) || 0;
     if (typeof isActive === "boolean") data.isActive = isActive;
 
-    // Category update (بالاسم أو بالـ id) — لنفس سبب null في المركّب، نحلّها يدويًا عند الاسم
+    // Category update
     if (categoryName) {
       const existingCat = await prisma.category.findFirst({
         where: { name: categoryName, parentId: null },
@@ -179,7 +208,7 @@ async function update(req, res) {
       data.category = { connect: { id: BigInt(categoryId) } };
     }
 
-    // Brand update (اسم/ID/فصل)
+    // Brand update
     if (brandName) {
       data.brand = {
         connectOrCreate: {
@@ -188,14 +217,37 @@ async function update(req, res) {
         },
       };
     } else if (brandId === null) {
+      // فصل البراند
       data.brand = { disconnect: true };
     } else if (brandId !== undefined) {
       data.brand = { connect: { id: BigInt(brandId) } };
     }
 
+    // features update
     if (features !== undefined) {
-      if (features && typeof features === "object") data.features = features;
-      else if (features === null) data.features = null;
+      if (features && typeof features === "object") {
+        data.features = features;
+      } else if (features === null) {
+        data.features = null;
+      }
+    }
+
+    // NEW: description
+    if (description !== undefined) {
+      if (typeof description === "string") {
+        data.description = description;
+      } else if (description === null) {
+        data.description = null;
+      }
+    }
+
+    // NEW: imageUrl
+    if (imageUrl !== undefined) {
+      if (typeof imageUrl === "string") {
+        data.imageUrl = imageUrl;
+      } else if (imageUrl === null) {
+        data.imageUrl = null;
+      }
     }
 
     const product = await prisma.product.update({ where: { id }, data });
@@ -205,6 +257,7 @@ async function update(req, res) {
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2002"
     ) {
+      // unique violation (مثلاً sku)
       return res
         .status(409)
         .json({ message: "SKU already exists", field: "sku" });
@@ -231,6 +284,7 @@ async function remove(req, res) {
 }
 
 // PATCH /owner/products/:id/toggle
+// body: { isActive: boolean }
 async function toggleActive(req, res) {
   try {
     const id = BigInt(req.params.id);
@@ -252,6 +306,7 @@ async function toggleActive(req, res) {
 }
 
 // PATCH /owner/products/:id/stock
+// body: { op: "inc"|"dec"|"set", qty: number }
 async function patchStock(req, res) {
   try {
     const id = BigInt(req.params.id);
@@ -270,14 +325,18 @@ async function patchStock(req, res) {
       return res.json({ product: toJSON(product) });
     }
 
+    // اقرأ المخزون الحالي
     const current = await prisma.product.findUnique({
       where: { id },
       select: { stockQty: true },
     });
-    if (!current) return res.status(404).json({ message: "Product not found" });
+    if (!current) {
+      return res.status(404).json({ message: "Product not found" });
+    }
 
     const next =
       op === "inc" ? current.stockQty + amount : current.stockQty - amount;
+
     const product = await prisma.product.update({
       where: { id },
       data: { stockQty: Math.max(0, next) },
@@ -295,12 +354,17 @@ async function patchStock(req, res) {
 async function list(req, res) {
   try {
     const page = Math.max(parseInt(req.query.page || "1", 10), 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit || "20", 10), 1), 100);
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit || "20", 10), 1),
+      100
+    );
     const search = (req.query.search || "").trim();
-    const categoryId = req.query.categoryId ? BigInt(req.query.categoryId) : null;
+    const categoryId = req.query.categoryId
+      ? BigInt(req.query.categoryId)
+      : null;
     const brandId = req.query.brandId ? BigInt(req.query.brandId) : null;
-    const active = req.query.active;
-    const sort = (req.query.sort || "-id").trim(); // <-- الافتراضي صار -id
+    const active = req.query.active; // "true" | "false" | undefined
+    const sort = (req.query.sort || "-id").trim(); // fallback: -id
 
     const where = {};
     if (search) where.name = { contains: search, mode: "insensitive" };
@@ -309,13 +373,20 @@ async function list(req, res) {
     if (active === "true") where.isActive = true;
     if (active === "false") where.isActive = false;
 
-    // اسمح فقط بالحقول الموجودة فعلًا
+    // الحقول المسموحة للفرز
     const allowedSortFields = new Set([
-      "id", "name", "sku", "priceCents", "stockQty", "isActive", "categoryId", "brandId"
-      // لو أضفت لاحقًا createdAt إلى Product، فيك تضيفه هون
+      "id",
+      "name",
+      "sku",
+      "priceCents",
+      "stockQty",
+      "isActive",
+      "categoryId",
+      "brandId",
+      // لو ضفت createdAt على Product فيما بعد، ضيفه هون
     ]);
 
-    let orderBy = { id: "desc" }; // fallback
+    let orderBy = { id: "desc" };
     if (sort) {
       const dir = sort.startsWith("-") ? "desc" : "asc";
       const field = sort.replace(/^-/, "");
@@ -341,13 +412,14 @@ async function list(req, res) {
   }
 }
 
-
 // GET /owner/products/:id
 async function getById(req, res) {
   try {
     const id = BigInt(req.params.id);
     const product = await prisma.product.findUnique({ where: { id } });
-    if (!product) return res.status(404).json({ message: "Product not found" });
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
     return res.json({ product: toJSON(product) });
   } catch (err) {
     console.error("products.getById error:", err);
