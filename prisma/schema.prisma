@@ -88,7 +88,7 @@ model Product {
   brand        Brand?    @relation(fields: [brandId], references: [id])
 
   features     Json?
-
+//update
   // NEW
   imageUrl     String?   @db.Text
   description  String?   @db.Text
