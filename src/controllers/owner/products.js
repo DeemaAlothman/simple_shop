@@ -1,3 +1,4 @@
+// controllers/owner/products.js
 const { PrismaClient, Prisma } = require("@prisma/client");
 const prisma = new PrismaClient();
 
@@ -40,7 +41,6 @@ async function create(req, res) {
       imageUrl = null,
     } = req.body || {};
 
-    // basic required checks
     if (!name || !sku) {
       return res.status(400).json({ message: "name, sku are required" });
     }
@@ -53,16 +53,13 @@ async function create(req, res) {
     // ===== Category relation =====
     let categoryRel;
     if (categoryName) {
-      // ندوّر على تصنيف بنفس الاسم و parentId = null
       const existingCat = await prisma.category.findFirst({
         where: { name: categoryName, parentId: null },
         select: { id: true },
       });
-
       if (existingCat) {
         categoryRel = { connect: { id: existingCat.id } };
       } else {
-        // إذا مو موجود، منخلقه
         const createdCat = await prisma.category.create({
           data: { name: categoryName, isActive: true, parentId: null },
           select: { id: true },
@@ -86,7 +83,6 @@ async function create(req, res) {
     // ===== Brand relation =====
     let brandRel;
     if (brandName) {
-      // brand.name عندك @unique => connectOrCreate آمن
       brandRel = {
         connectOrCreate: {
           where: { name: brandName },
@@ -107,7 +103,6 @@ async function create(req, res) {
       brandRel = { connect: { id: brId } };
     }
 
-    // نبني الـ data تبع الـ product
     const data = {
       name,
       sku,
@@ -120,7 +115,7 @@ async function create(req, res) {
 
       ...(features && typeof features === "object" ? { features } : {}),
 
-      // NEW FIELDS
+      // NEW
       ...(typeof description === "string" ? { description } : {}),
       ...(typeof imageUrl === "string" ? { imageUrl } : {}),
     };
@@ -130,7 +125,6 @@ async function create(req, res) {
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       if (err.code === "P2002") {
-        // unique violation => غالباً sku
         return res
           .status(409)
           .json({ message: "SKU already exists", field: "sku" });
@@ -148,7 +142,7 @@ async function create(req, res) {
 
 /**
  * PATCH /owner/products/:id
- * يقبل أي من:
+ * يقبل:
  *  name, sku, priceCents, stockQty, isActive
  *  categoryId OR categoryName
  *  brandId OR brandName (أو brandId = null لفصل البراند)
@@ -159,7 +153,6 @@ async function create(req, res) {
 async function update(req, res) {
   try {
     const id = BigInt(req.params.id);
-
     const {
       name,
       sku,
@@ -181,8 +174,6 @@ async function update(req, res) {
     } = req.body || {};
 
     const data = {};
-
-    // حقول بسيطة
     if (typeof name === "string") data.name = name;
     if (typeof sku === "string") data.sku = sku;
     if (priceCents !== undefined) data.priceCents = Number(priceCents) || 0;
@@ -217,37 +208,27 @@ async function update(req, res) {
         },
       };
     } else if (brandId === null) {
-      // فصل البراند
       data.brand = { disconnect: true };
     } else if (brandId !== undefined) {
       data.brand = { connect: { id: BigInt(brandId) } };
     }
 
-    // features update
+    // features
     if (features !== undefined) {
-      if (features && typeof features === "object") {
-        data.features = features;
-      } else if (features === null) {
-        data.features = null;
-      }
+      if (features && typeof features === "object") data.features = features;
+      else if (features === null) data.features = null;
     }
 
     // NEW: description
     if (description !== undefined) {
-      if (typeof description === "string") {
-        data.description = description;
-      } else if (description === null) {
-        data.description = null;
-      }
+      if (typeof description === "string") data.description = description;
+      else if (description === null) data.description = null;
     }
 
     // NEW: imageUrl
     if (imageUrl !== undefined) {
-      if (typeof imageUrl === "string") {
-        data.imageUrl = imageUrl;
-      } else if (imageUrl === null) {
-        data.imageUrl = null;
-      }
+      if (typeof imageUrl === "string") data.imageUrl = imageUrl;
+      else if (imageUrl === null) data.imageUrl = null;
     }
 
     const product = await prisma.product.update({ where: { id }, data });
@@ -257,7 +238,6 @@ async function update(req, res) {
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2002"
     ) {
-      // unique violation (مثلاً sku)
       return res
         .status(409)
         .json({ message: "SKU already exists", field: "sku" });
@@ -325,7 +305,6 @@ async function patchStock(req, res) {
       return res.json({ product: toJSON(product) });
     }
 
-    // اقرأ المخزون الحالي
     const current = await prisma.product.findUnique({
       where: { id },
       select: { stockQty: true },
@@ -373,7 +352,6 @@ async function list(req, res) {
     if (active === "true") where.isActive = true;
     if (active === "false") where.isActive = false;
 
-    // الحقول المسموحة للفرز
     const allowedSortFields = new Set([
       "id",
       "name",
@@ -383,7 +361,6 @@ async function list(req, res) {
       "isActive",
       "categoryId",
       "brandId",
-      // لو ضفت createdAt على Product فيما بعد، ضيفه هون
     ]);
 
     let orderBy = { id: "desc" };

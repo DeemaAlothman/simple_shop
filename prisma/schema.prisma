@@ -73,24 +73,25 @@ model Brand {
 
   products Product[]
 }
+// schema.prisma (ضمن model Product)
 model Product {
-  id           BigInt   @id @default(autoincrement())
+  id           BigInt    @id @default(autoincrement())
   name         String
-  sku          String   @unique
-  priceCents   Int      @default(0)
-  stockQty     Int      @default(0)
-  isActive     Boolean  @default(true)
+  sku          String    @unique
+  priceCents   Int       @default(0)
+  stockQty     Int       @default(0)
+  isActive     Boolean   @default(true)
   categoryId   BigInt
   brandId      BigInt?
 
-  category     Category @relation(fields: [categoryId], references: [id])
-  brand        Brand?   @relation(fields: [brandId], references: [id])
+  category     Category  @relation(fields: [categoryId], references: [id])
+  brand        Brand?    @relation(fields: [brandId], references: [id])
 
   features     Json?
 
-  // NEW 👇
-  description  String?
-  imageUrl     String?
+  // NEW
+  imageUrl     String?   @db.Text
+  description  String?   @db.Text
 
   specs        ProductSpec[]
   orderItems   OrderItem[]
