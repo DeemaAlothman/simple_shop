@@ -136,11 +136,30 @@ async function getMyOrderById(req, res) {
   try {
     const uid = BigInt(req.user.id);
     const id = BigInt(req.params.id);
+
     const order = await prisma.order.findFirst({
       where: { id, customerId: uid },
-      include: { items: true },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                sku: true,
+                imageUrl: true, // 🔹 هنا صورة المنتج
+                description: true, // 🔹 هنا وصف المنتج
+                priceCents: true,
+                stockQty: true,
+              },
+            },
+          },
+        },
+      },
     });
+
     if (!order) return res.status(404).json({ message: "Order not found" });
+
     return res.json({ order: toJSON(order) });
   } catch (err) {
     console.error("orders.getMyOrderById error:", err);
@@ -149,5 +168,4 @@ async function getMyOrderById(req, res) {
       .json({ message: "Cannot get order", error: err.message });
   }
 }
-
 module.exports = { createOrder, listMyOrders, getMyOrderById };

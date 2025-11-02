@@ -25,12 +25,11 @@ function computeDiscount(basePriceCents, offers) {
   return discount;
 }
 
-// GET /catalog/offers?now=true|false&page=1&limit=20
 async function listPublic(req, res) {
   try {
     const page = Math.max(parseInt(req.query.page || "1", 10), 1);
     const limit = Math.min(
-      Math.max(parseInt(req.query.limit || "20", 10), 1),
+      Math.max(parseInt(req.query.limit||  "20", 10), 1),
       100
     );
     const onlyNow = String(req.query.now || "true").toLowerCase() === "true";
@@ -61,29 +60,36 @@ async function listPublic(req, res) {
                   priceCents: true,
                   stockQty: true,
                   isActive: true,
+                  description: true, // ✅ إضافة الوصف
+                  imageUrl: true, // ✅ إضافة رابط الصورة
                   features: true, // JSON
                   brand: {
-                    select: { id: true, name: true }
+                    select: { id: true, name: true },
                   },
                   category: {
-                    select: { id: true, name: true, parentId: true }
-                  }
-                }
-              }
-            }
+                    select: { id: true, name: true, parentId: true },
+                  },
+                },
+              },
+            },
           },
           // (اختياري) رجّع تفاصيل التصنيفات المستهدفة
           categoryTargets: {
             select: {
               categoryId: true, // اختياري
               category: {
-                select: { id: true, name: true, parentId: true, isActive: true }
-              }
-            }
-          }
-        }
+                select: {
+                  id: true,
+                  name: true,
+                  parentId: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+        },
       }),
-      prisma.offer.count({ where })
+      prisma.offer.count({ where }),
     ]);
 
     return res.json({ items: toJSON(items), total, page, limit });
@@ -92,7 +98,6 @@ async function listPublic(req, res) {
     return res.status(500).json({ message: "Server error" });
   }
 }
-
 
 // GET /catalog/price?id=PRODUCT_ID
 async function getPriceWithOffers(req, res) {
