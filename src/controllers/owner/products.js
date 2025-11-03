@@ -78,7 +78,8 @@ async function create(req, res) {
     let finalImageUrl = null;
     if (req.file) {
       const base = baseUrlFrom(req);
-      finalImageUrl = `${base}/uploads/${req.file.filename}`;
+      // finalImageUrl = ${base}/uploads/${req.file.filename};
+      finalImageUrl = `/uploads/${req.file.filename}`;
     } else if (typeof imageUrl === "string" && imageUrl.trim()) {
       finalImageUrl = imageUrl.trim();
     }
@@ -137,6 +138,8 @@ async function create(req, res) {
       .json({ message: "Cannot create product", error: err.message });
   }
 }
+
+  // PATCH /owner/products/:id
 /**
  * PATCH /owner/products/:id
  * يدعم استبدال الصورة عبر multipart بنفس المفتاح image
@@ -151,96 +154,81 @@ async function update(req, res) {
       priceCents,
       stockQty,
       isActive,
-
       categoryId,
-      categoryName,
-
       brandId,
-      brandName,
-
       features,
-
       description,
       imageUrl,
     } = req.body || {};
 
-    const data = {};
-
-    if (typeof name === "string") data.name = name;
-    if (typeof sku === "string") data.sku = sku;
-    if (priceCents !== undefined) data.priceCents = Number(priceCents) || 0;
-    if (stockQty !== undefined) data.stockQty = Number(stockQty) || 0;
-    if (typeof isActive === "boolean") data.isActive = isActive;
-
-    // Category update
-    if (categoryName) {
-      const existingCat = await prisma.category.findFirst({
-        where: { name: categoryName, parentId: null },
-        select: { id: true },
-      });
-      if (existingCat) {
-        data.category = { connect: { id: existingCat.id } };
-      } else {
-        const createdCat = await prisma.category.create({
-          data: { name: categoryName, isActive: true, parentId: null },
-          select: { id: true },
-        });
-        data.category = { connect: { id: createdCat.id } };
-      }
-    } else if (categoryId !== undefined) {
-      data.category = { connect: { id: BigInt(categoryId) } };
+    // ===== Category relation =====
+    let categoryRel;
+    if (categoryId) {
+      categoryRel = { connect: { id: BigInt(categoryId) } };
     }
 
-    // Brand update
-    if (brandName) {
-      data.brand = {
-        connectOrCreate: {
-          where: { name: brandName },
-          create: { name: brandName, isActive: true },
-        },
-      };
-    } else if (brandId === null) {
-      data.brand = { disconnect: true };
-    } else if (brandId !== undefined) {
-      data.brand = { connect: { id: BigInt(brandId) } };
+    // ===== Brand relation =====
+    let brandRel;
+    if (brandId === null) {
+      brandRel = { disconnect: true };
+    } else if (brandId) {
+      brandRel = { connect: { id: BigInt(brandId) } };
     }
 
-    // features
-    if (features !== undefined) {
-      if (features && typeof features === "object") data.features = features;
-      else if (features === null) data.features = null;
-    }
-
-    // description
-    if (description !== undefined) {
-      if (typeof description === "string") data.description = description;
-      else if (description === null) data.description = null;
-    }
-
-    // image: أولوية لملف مرفوع، وإلا imageUrl
+    // ===== Image URL =====
+    let finalImageUrl;
     if (req.file) {
-      const base = baseUrlFrom(req);
-      data.imageUrl = `${base}/uploads/${req.file.filename}`;
-    } else if (imageUrl !== undefined) {
-      if (typeof imageUrl === "string" && imageUrl.trim()) {
-        data.imageUrl = imageUrl.trim();
-      } else if (imageUrl === null) {
-        data.imageUrl = null;
+      finalImageUrl = `/uploads/${req.file.filename}`;
+    } else if (typeof imageUrl === "string" && imageUrl.trim()) {
+      finalImageUrl = imageUrl.trim();
+    }
+
+    // ===== Features handling =====
+    let finalFeatures;
+    if (features !== undefined) {
+      if (features && typeof features === "object") {
+        const currentProduct = await prisma.product.findUnique({
+          where: { id },
+        });
+        const oldFeatures = currentProduct?.features || {};
+        finalFeatures = { ...oldFeatures, ...features }; // دمج القديم مع الجديد
+      } else if (features === null) {
+        finalFeatures = null;
       }
     }
 
-    const product = await prisma.product.update({ where: { id }, data });
-    return res.json({ product: toJSON(product) });
+    // ===== Prepare data =====
+    const data = {
+      ...(typeof name === "string" ? { name } : {}),
+      ...(typeof sku === "string" ? { sku } : {}),
+      ...(priceCents !== undefined
+        ? { priceCents: Number(priceCents) || 0 }
+        : {}),
+      ...(stockQty !== undefined ? { stockQty: Number(stockQty) || 0 } : {}),
+      ...(typeof isActive === "boolean" ? { isActive } : {}),
+      ...(categoryRel ? { category: categoryRel } : {}),
+      ...(brandRel ? { brand: brandRel } : {}),
+      ...(finalFeatures ? { features: finalFeatures } : {}),
+      ...(typeof description === "string" ? { description } : {}),
+      ...(description === null ? { description: null } : {}),
+      ...(finalImageUrl ? { imageUrl: finalImageUrl } : {}),
+    };
+
+    // ===== Update product =====
+    const updatedProduct = await prisma.product.update({ where: { id }, data });
+    return res.json({ product: toJSON(updatedProduct) });
   } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
-      return res
-        .status(409)
-        .json({ message: "SKU already exists", field: "sku" });
-    }
     console.error("products.update error:", err);
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === "P2002") {
+        return res
+          .status(409)
+          .json({ message: "SKU already exists", field: "sku" });
+      }
+      if (err.code === "P2025") {
+        return res.status(404).json({ message: "Product not found" });
+      }
+    }
     return res
       .status(400)
       .json({ message: "Cannot update product", error: err.message });
